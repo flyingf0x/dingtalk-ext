@@ -197,6 +197,10 @@ clear为是否清除之前保存在内部的数据,true/false。
 条件列表，条件一般需要提供条件来源与满足情况。
 - control
 条件来源控件，从searchFromTemplate方法或从template数组中获取。
+目前支持控件如下：
+- 单选框
+- 数字输入框
+- 金额
 
 >当控件为单选框时需要提供
 **values**
