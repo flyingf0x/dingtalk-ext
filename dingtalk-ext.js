@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         钉钉审批流程加强插件
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.2
 // @description  钉钉后台操作麻烦？修改流程要死？现在你可以用js写流程并保存好流程文件，修改与更新只需重新导入一次即可。
 // @author       $(ghsot)
 // @match        https://aflow.dingtalk.com/dingtalk/web/query/processDesign*
@@ -11,12 +11,12 @@
 
 (function() {
     'use strict';
+    //开始指定指定代码
+    let exec=(code)=>{
+        eval(code);
+    }
     //供外部代码运行的环境
     let sandbox={
-        //开始指定指定代码
-        exec:(code)=>{
-            eval(code);
-        },
         /*
         基本功能区域
         */
@@ -55,7 +55,7 @@
         //快速建立发起人
         genSender:null,
         //快速建立审批条目
-        genRule:null
+        //genRule:null
     };
     window.sandbox=sandbox;
     //内部代码执行闭包
@@ -164,7 +164,7 @@
                     let file=input.files[0];
                     let reader=new FileReader();
                     reader.onload=(res)=>{
-                        sandbox.exec(res.target.result);
+                        exec(res.target.result);
                     }
                     reader.readAsText(file);
                 }
