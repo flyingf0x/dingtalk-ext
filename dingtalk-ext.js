@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         钉钉审批流程加强插件
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  钉钉后台操作麻烦？修改流程要死？现在你可以用js写流程并保存好流程文件，修改与更新只需重新导入一次即可。
 // @author       $(ghsot)
 // @match        https://aflow.dingtalk.com/dingtalk/web/query/processDesign*
