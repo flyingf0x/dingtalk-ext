@@ -74,7 +74,6 @@
         //快速建立发起人
         sandbox.genSender=function(){
             let senders=[];
-            let obj={name:-1,senders:senders};
             //添加一个单位 给出完整路径
             this.genUnit=async(unit,clear)=>{
                 if(clear){this.clear();}
@@ -115,10 +114,10 @@
                 return this.gen();
             }
             this.gen=()=>{
-                return obj;
+                return {name:-1,senders:senders};
             }
             this.clear=()=>{
-                senders.length=0;
+                senders=[];
             }
             return this;
         }
@@ -278,13 +277,18 @@
                             resolve(searchCache[id]);
                         }
                     }else{
-                        reject();
+                        reject({});
                     }
                 });
             })
         }
+        let frameworkCache={};
         //从公司架构中搜索 使用路径发送过来 如"总部->业务线"，"总部->*","总部->运营/事业"将会返回数据数组或者一个item
         sandbox.readFrameworkList=(name)=>{
+            if(frameworkCache[name]){
+                //找到缓存了
+                return frameworkCache[name];
+            }
             let list=name.split('->');
             return new Promise(async (resolve,reject)=>{
                 //try{
@@ -297,11 +301,13 @@
                         //这是最后一个了
                         let tmp=await sandbox.readCompanyList(currentId);
                         if(!tmp){
-                            reject();
+                            reject({});
                             return;
                         }
                         tmpList.push(tmp);
                         if(list[i]=='*'){
+                            //缓存一下
+                            frameworkCache[name]=tmpList[i];
                             //这个目录下所有都要
                             resolve(tmpList[i]);
                             return;
@@ -314,31 +320,55 @@
                             for(let it of multiList){
                                 resultList.push(searchFromCompanyList(tmpList[i],it));
                             }
+                            //缓存一下
+                            frameworkCache[name]=resultList;
                             resolve(resultList);
                             return;
                         }
                         //仅仅需要一个结果
                         //console.log(tmpList);
-                        resolve(searchFromCompanyList(tmpList[i],list[i]))
+                        let result=searchFromCompanyList(tmpList[i],list[i]);
+                        //缓存一下
+                        frameworkCache[name]=result;
+                        resolve(result);
                         return;
                     }else{
                         //还不是最后一个
                         let tmp=await sandbox.readCompanyList(currentId,list[i]);
                         if(!tmp||tmp.nodeType!=0){
                             //搜出来竟然不是目录，返回
-                            reject();
+                            reject({});
                             return;
                         }
                         tmpList.push(tmp);
                     }
                 }
-                reject();
+                reject({});
                 //}catch(e){console.log(e)}
             })
         }
+        let companyUnitCache={};
         //搜索某一个人名字
         sandbox.searchFromCompany=(keyword,pack)=>{
             keyword=keyword||'';
+            let get=(list,pack)=>{
+                if(!isNaN(parseInt(pack))){
+                    //包装出去
+                    let unit=list[pack];
+                    if(unit){
+                        return {type:0,obj:unit};
+                    }else{
+                        return null;
+                    }
+                }else{
+                    //不包装
+                    return list;
+                }
+            }
+            if(companyUnitCache[keyword]){
+                //找到缓存了
+                return get(companyUnitCache[keyword],pack);
+            }
             return new Promise((resolve,reject)=>{
                 let url='https://oa.dingtalk.com/omp/lwpV2';
                 http.get(url,{
@@ -347,22 +377,14 @@
                     args:JSON.stringify([keyword,0,0,30,{"appId":-4,"type":"w"}])
                 },(res)=>{
                     if(res){
-                        if(!isNaN(parseInt(pack))){
-                            //包装出去
-                            let unit=res.result.values[pack];
-                            if(unit){
-                                resolve({type:0,obj:unit});
-                            }else{
-                                reject();
-                            }
-                        }else{
-                            //不包装
-                            resolve(res.result.values);
-                        }
+                        //缓存一下
+                        companyUnitCache[keyword]=res.result.values;
+                        let result=get(res.result.values,pack);
+                        result?resolve(result):reject({});
                     }else{
-                        reject();
+                        reject({});
                     }
-                    res!=null?resolve(res.result.values):reject();
+                    //res!=null?resolve(res.result.values):reject();
                 })
             })
         }
@@ -377,7 +399,7 @@
                         roleListCache=res.result;
                         resolve(res.result);
                     }else{
-                        reject();
+                        reject({});
                     }
                 })
             })
@@ -406,19 +428,21 @@
             data.conditionRule=JSON.stringify(sendList);
             return new Promise((resolve,reject)=>{
                 http.post('https://aflow.dingtalk.com/dingtalk/web/query/rule/setConditionRule.json',data,(res)=>{
-                    res!=null?resolve(res):reject();
+                    res!=null?resolve(res):reject({});
                 })
             })
         }
         //从角色中查找 缓存
-        sandbox.searchFromRole=(name,pack)=>{
+        sandbox.searchFromRole=(name,pack,act)=>{
             if(roleListCache){
                 for(let item of roleListCache){
                     if(item.labels){
                         for(let child of item.labels){
                             if(name==child.name){
                                 if(pack){
-                                    return {type:1,obj:child};
+                                    let result={type:1,obj:child};
+                                    if(act){result.act=act;}
+                                    return result;
                                 }else{
                                     return child;
                                 }
@@ -483,15 +507,10 @@
         notifiers 抄送者
             type 类型
             obj 搜索出来的角色或者人物
-            弃用:
-            id ID
-            name 名称,approval不需要
         rules 规则
             type 类型
             obj 搜索出来的角色或者人物
-            弃用:
-            id ID
-            name 名称,approval不需要
+            act 审批类型，不传：默认，用户自己选择；or:其中一人同意即可；and:所有人同意才OK type为1时起作用
         conds 其他条件
             control 控件
             values 如果是选择框，提供满足选择的list
@@ -520,6 +539,10 @@
             let dealList=(src,dest)=>{
                 for(let item of src){
                     //console.log(item)
+                    if(!item){
+                        error={msg:'审批/抄送拿到了null，返回整个列表',obj:src};
+                        return;
+                    }
                     let n={};
                     n.type=humanList[item.type];
                     if(!n.type){
@@ -530,16 +553,41 @@
                         error={msg:'审批/抄送中有空的对象，返回整个列表',obj:src};
                         return;
                     }
+                    //加入actType
+                    if(item.act){
+                        n.actType=item.act;
+                    }
                     switch(item.type){
                         case 0:
                             //一个人
-                            n.approvals=[item.obj.employee.orgStaffId];
+                            n.approvals=[];
+                            if(item.obj instanceof Array){
+                                console.log(item.obj);
+                                for(let child of item.obj){
+                                    if(!child.employee||!child.employee.orgStaffId){
+                                        error={msg:'无效的数据，返回该对象',obj:child};
+                                        return;
+                                    }
+                                    n.approvals.push(child.employee.orgStaffId);
+                                }
+                            }else{
+                                n.approvals.push(item.obj.employee.orgStaffId);
+                            }
                             break;
                         case 1:
                         case 2:
                             //一个角色
-                            n.labels=[item.obj.id];
-                            n.labelNames=[item.obj.name];
+                            n.labels=[];
+                            n.labelNames=[];
+                            if(item.obj instanceof Array){
+                                for(let child of item.obj){
+                                    n.labels.push(child.id);
+                                    n.labelNames.push(child.name);
+                                }
+                            }else{
+                                n.labels.push(item.obj.id);
+                                n.labelNames.push(item.obj.name);
+                            }
                             break;
                         default:
                             error={msg:'有不支持的审批/抄送单位类型，返回出错对象',obj:item};
@@ -677,7 +725,7 @@
             data.ruleConf=JSON.stringify(content);
             return new Promise((resolve,reject)=>{
                 http.post('https://aflow.dingtalk.com/dingtalk/web/query/rule/setRuleConfInfo.json',data,(res)=>{
-                    res!=null?resolve(res):reject();
+                    res!=null?resolve(res):reject({});
                 })
             })
             //}catch(e){console.log(e);}
@@ -692,7 +740,7 @@
             data.settings=JSON.stringify(settings);
             return new Promise((resolve,reject)=>{
                 http.post('https://aflow.dingtalk.com/dingtalk/web/query/process/setProcessSetting.json',data,(res)=>{
-                    res!=null?resolve(res):reject();
+                    res!=null?resolve(res):reject({});
                 })
             })
         }
@@ -703,7 +751,7 @@
             data.noticePosition=rule;
             return new Promise((resolve,reject)=>{
                 http.post('https://aflow.dingtalk.com/dingtalk/web/query/notice/setNoticePosition.json',data,(res)=>{
-                    res!=null?resolve(res):reject();
+                    res!=null?resolve(res):reject({});
                 })
             })
         }
