@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         钉钉审批流程加强插件
 // @namespace    http://tampermonkey.net/
-// @version      1.3
+// @version      1.4
 // @description  钉钉后台操作麻烦？修改流程要死？现在你可以用js写流程并保存好流程文件，修改与更新只需重新导入一次即可。
 // @author       $(ghsot)
 // @match        https://aflow.dingtalk.com/dingtalk/web/query/processDesign*
@@ -174,6 +174,9 @@
         let fetch=window.fetch;
         window.fetch=null;
         let xhr=window.XMLHttpRequest;
+        //从钉钉获取的东西
+        let clientCorpId;
+        let token;
         //封装一个ajax
         let http = {
             qs(data){
@@ -201,6 +204,7 @@
                 x.withCredentials=true;
                 let str = this.qs(data);
                 x.open('GET',url+(str?('?'+str):''),true);
+                //x.setRequestHeader('x-client-corpid',clientCorpId);
                 //x.setRequestHeader('hrm_csrf_token',cookieObj.hrm_csrf_token);
                 //x.setRequestHeader('X-csrf-token',cookieObj.csrf_token);
                 x.send();
@@ -218,6 +222,8 @@
                 }
                 x.withCredentials=true;
                 x.open('POST',url,true);
+                x.setRequestHeader('x-client-corpid',clientCorpId);
+                x.setRequestHeader('_csrf_token_',token);
                 //x.setRequestHeader('hrm_csrf_token',cookieObj.hrm_csrf_token);
                 //x.setRequestHeader('X-csrf-token',cookieObj.csrf_token);
                 if(json){
@@ -472,6 +478,11 @@
             'target_label',
             'target_managers_labels'
         ];
+        const humanClass=[
+            'TargetApprovalConfExtensionDO',
+            'TargetLabelConfExtensionDO',
+            'TargetManagersLabelsConfExtensionDO'
+        ]
         /*
         0 选择框 paramValues为符合条件的所有选项数组
         1 数字框
@@ -487,18 +498,19 @@
             {
                 //金额输入
                 name:'MoneyField',
-                type:'dingtalk_actioner_range_condition'
+                type:'dingtalk_actioner_range_condition',
                 //classAlias:'DingTalkActionerRangeConfExtensionD0'
             },
             {
                 //单选框
                 name:'DDSelectField',
-                type:'dingtalk_actioner_value_condition'
+                type:'dingtalk_actioner_value_condition',
                 //classAlias:'DingTalkActionerValueConfExtensionD0'
             },
             {
                 name:'NumberField',
-                type:'dingtalk_actioner_range_condition'
+                type:'dingtalk_actioner_range_condition',
+                //classAlias:'DingTalkActionerRangeConfExtensionDO'
             }
         ];
         /*
@@ -536,7 +548,7 @@
             //一旦有错误 立即返回 包含msg obj
             let error;
             //处理审批人/抄送人
-            let dealList=(src,dest)=>{
+            let dealList=(src,dest,withClass,notifierType)=>{
                 for(let item of src){
                     //console.log(item)
                     if(!item){
@@ -545,6 +557,9 @@
                     }
                     let n={};
                     n.type=humanList[item.type];
+                    /*if(withClass){
+                        n.classAlias=humanClass[item.type];
+                    }*/
                     if(!n.type){
                         error={msg:'审批/抄送为不支持的单位类型，返回整个列表',obj:src};
                         return;
@@ -562,7 +577,6 @@
                             //一个人
                             n.approvals=[];
                             if(item.obj instanceof Array){
-                                console.log(item.obj);
                                 for(let child of item.obj){
                                     if(!child.employee||!child.employee.orgStaffId){
                                         error={msg:'无效的数据，返回该对象',obj:child};
@@ -588,6 +602,9 @@
                                 n.labels.push(item.obj.id);
                                 n.labelNames.push(item.obj.name);
                             }
+                            /*if(withClass&&notifierType){
+                                delete n.labelNames;
+                            }*/
                             break;
                         default:
                             error={msg:'有不支持的审批/抄送单位类型，返回出错对象',obj:item};
@@ -597,13 +614,16 @@
                     dest.push(n);
                 }
             }
+            let _notifiers=[];
+            let _rules=[];
+            let _notifiersWithClass=[];
+            let _rulesWithClass=[];
             //递归处理条件
-            let addCond=(list,rules,notifiers,status)=>{
+            let addCond=(list,status)=>{
                 let content={};
                 let cond=list.shift();
                 //计算出index
                 let index=0;
-                //console.log(cond);
                 let name=cond.name||(cond.control?cond.control.componentName:'');
                 if(!name){
                     error={msg:'无效的判断条件数据，返回出错对象',cond};
@@ -621,10 +641,23 @@
                     return;
                 }
                 //加入数据
-                //content.classAlias=condList[index].classAlias;
+                /*if(status&&condList[index].classAlias){
+                    content.classAlias=condList[index].classAlias;
+                }*/
                 content.type=condList[index].type;
                 content.exclMgrDeptsDepth=0;
                 content.status=status;
+                if(status){
+                    //class
+                    //抄送人
+                    content.notifiers=_notifiersWithClass;
+                    //规则
+                    content.rules=_rulesWithClass;
+                }else{
+                    //no class
+                    content.notifiers=_notifiers;
+                    content.rules=_rules;
+                }
                 status=status||1;
                 content.paramKey=condList[index].id||cond.control.props.id;
                 content.paramLabel=condList[index].label||cond.control.props.label;
@@ -635,14 +668,14 @@
                         for(let sender of cond.senders){
                             let n={};
                             if(sender.nodeType==1){
-                                n.value=sender.employee.orgId+'';
+                                n.value=sender.employee.orgId;
                                 n.type='user';
                                 n.attrs={
                                     name:sender.employee.orgUserName,
                                     avatar:''
                                 }
                             }else{
-                                n.value=sender.dept.deptId+'';
+                                n.value=sender.dept.deptId;
                                 n.type='dept';
                                 n.attrs={
                                     name:sender.dept.deptName,
@@ -659,21 +692,17 @@
                         content.lowerBound=cond['>=']||'';
                         content.bondEqual=cond['=']||'';
                         content.upperBoundEqual=cond['<=']||'';
-                        content.key='g';
+                        //content.key='g';
                         break;
                     case 2:
                         content.paramValues=cond.values;
-                        content.oriValue=cond.control.props.options;
+                        //content.oriValue=cond.control.props.options;
                         break;
                 }
-                //抄送人
-                content.notifiers=notifiers;
-                //规则
-                content.rules=rules;
                 //继续递归
                 if(list.length>0){
                     //还有数据，继续递归
-                    content.multiRules=[addCond(list,rules,notifiers,status)];
+                    content.multiRules=[addCond(list,status)];
                 }
                 return content;
             }
@@ -681,19 +710,23 @@
             for(let rule of rules){
                 let item={};
                 //抄送者
-                let notifiers=[];
-                dealList(rule.notifiers,notifiers);
+                _notifiers=[];
+                dealList(rule.notifiers,_notifiers);
                 if(error){return error;}
                 //审批者
-                let rules=[];
-                dealList(rule.rules,rules);
+                _rules=[];
+                dealList(rule.rules,_rules);
                 if(error){return error;}
+                _notifiersWithClass=[];
+                dealList(rule.notifiers,_notifiersWithClass,true,true);
+                _rulesWithClass=[];
+                dealList(rule.rules,_rulesWithClass,true);
                 //判断是否是默认
                 if(rule.type==0){
                     //默认
                     item.type='dingtalk_actioner_default';
-                    item.rules=rules;
-                    item.notifiers=notifiers;
+                    item.rules=_rules;
+                    item.notifiers=_notifiers;
                     //未知值 写死0
                     item.exclMgrDeptsDepth=0;
                     //状态值 写死0
@@ -703,7 +736,7 @@
                 }
                 //不是默认，开始处理
                 if(rule.conds&&rule.conds.length>0){
-                    item=addCond(rule.conds,rules,notifiers,0);
+                    item=addCond(rule.conds,0);
                     if(error){return error};
                 }
                 content.multiRules.push(item);
@@ -773,6 +806,9 @@
                         case 'send':
                             this[key]=send;
                             break;
+                        case 'setRequestHeader':
+                            this[key]=setHeader;
+                            break;
                         default:
                             this[key]=function(){
                                 obj[key].apply(obj,arguments);
@@ -840,6 +876,16 @@
                 obj.responseType='';
                 obj.send.apply(obj,arguments);
             }
+            //setHeader
+            function setHeader(){
+                if(arguments[0]=='x-client-corpid'){
+                    clientCorpId=arguments[1];
+                }else if(arguments[0]=='_csrf_token_'){
+                    token=arguments[1];
+                }
+                obj.setRequestHeader.apply(obj,arguments);
+            }
         };
     })();
 })();
+
