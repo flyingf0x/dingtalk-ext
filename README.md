@@ -16,6 +16,8 @@
     await sandbox.readRoleList();
     //一个流程列表
     let rules=[];
+    //new一个发起人生成器
+    let senderGen=sandbox.genSender();
     //加入一个流程
     rules.push({
     	//这是一个条件流程，而不是type 0默认流程
@@ -52,6 +54,9 @@
 })();
 ```
 一条简单的审批就这样生成了，你可以使用各类循环、递归等你需要的逻辑花样生成审批流程。
+
+![input图](https://)
+
 ## API
 api提供了一些属性与方法，其中一部分使用promise封装，名称又比较类似，请仔细阅读文档避免问题。
 所有api存放在window.sandbox中，可全局直接调用。
