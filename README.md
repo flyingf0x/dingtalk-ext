@@ -53,9 +53,11 @@
     console.log(result);
 })();
 ```
-一条简单的审批就这样生成了，你可以使用各类循环、递归等你需要的逻辑花样生成审批流程。
+一条简单的审批就这样生成了，你可以使用各类循环、递归等你需要的逻辑花样生成审批流程。将写好的js文件保存在本地。
 
-![input图](https://)
+打开审批流程编辑页，脚本成功安装后顶部会出现如图所示的input控件，使用控件选择本地写好的js文件即可执行。
+
+![input图](https://raw.githubusercontent.com/gogogoghost/dingtalk-ext/master/md_img/input.png)
 
 ## API
 api提供了一些属性与方法，其中一部分使用promise封装，名称又比较类似，请仔细阅读文档避免问题。
