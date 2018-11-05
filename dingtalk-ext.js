@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         钉钉审批流程加强插件
 // @namespace    http://tampermonkey.net/
-// @version      1.5
+// @version      1.6
 // @description  钉钉后台操作麻烦？修改流程要死？现在你可以用js写流程并保存好流程文件，修改与更新只需重新导入一次即可。
 // @author       $(ghsot)
 // @match        https://aflow.dingtalk.com/dingtalk/web/query/designCenter*
+// @match        https://oa.dingtalk.com/*
 // @grant        none
 // @run-at       document-start
 // ==/UserScript==
@@ -186,11 +187,24 @@
                     {
                         str+='&';
                     }
-                    str += i+'='+data[i];
+                    str += i+'='+encodeURI(data[i]);
                 }
                 return str;
             },
             get(url,data,func){
+                if(location.host!='oa.dingtalk.com'){
+                    if(url.startsWith('https://oa.dingtalk.com')){
+                        //console.log('send');
+                        this.childWin.postMessage({
+                            verify:true,
+                            method:'get',
+                            args:[url,data]
+                        },'*')
+                        this.func=func;
+                        return;
+                    }
+                }
+                //console.log('recv');
                 let x = new xhr();
                 x.onreadystatechange = function(){
                     if(x.readyState== 4){
@@ -205,11 +219,23 @@
                 let str = this.qs(data);
                 x.open('GET',url+(str?('?'+str):''),true);
                 //x.setRequestHeader('x-client-corpid',clientCorpId);
-                //x.setRequestHeader('hrm_csrf_token',cookieObj.hrm_csrf_token);
-                //x.setRequestHeader('X-csrf-token',cookieObj.csrf_token);
+                x.setRequestHeader('hrm_csrf_token',cookieObj.hrm_csrf_token);
+                x.setRequestHeader('X-csrf-token',cookieObj.csrf_token);
+                x.setRequestHeader('X-Requested-With','XMLHttpRequest');
                 x.send();
             },
             post(url,data,func,json){
+                if(location.host!='oa.dingtalk.com'){
+                    if(url.startsWith('https://oa.dingtalk.com')){
+                        this.childWin.postMessage({
+                            verify:true,
+                            method:'post',
+                            args:[url,data,json]
+                        },'*')
+                        this.func=func;
+                        return;
+                    }
+                }
                 let x = new xhr();
                 x.onreadystatechange = function(){
                     if(x.readyState== 4){
@@ -224,8 +250,9 @@
                 x.open('POST',url,true);
                 x.setRequestHeader('x-client-corpid',clientCorpId);
                 x.setRequestHeader('_csrf_token_',token);
-                //x.setRequestHeader('hrm_csrf_token',cookieObj.hrm_csrf_token);
-                //x.setRequestHeader('X-csrf-token',cookieObj.csrf_token);
+                x.setRequestHeader('hrm_csrf_token',cookieObj.hrm_csrf_token);
+                x.setRequestHeader('X-csrf-token',cookieObj.csrf_token);
+                x.setRequestHeader('X-Requested-With','XMLHttpRequest');
                 if(json){
                     x.setRequestHeader('content-type','application/json');
                     //发送
@@ -237,6 +264,43 @@
                 }
             }
         };
+        //OA页面 到这里就该退出了
+        if(window.location.host=='oa.dingtalk.com'){
+            window.addEventListener('message',function(evt){
+                let obj=evt.data;
+                //防止自己发给自己 无限循环
+                if(!obj.verify){
+                    return;
+                }
+                if(obj.method=='get'){
+                    http.get(obj.args[0],obj.args[1],(res)=>{
+                        window.parent.postMessage(res,'*');
+                    })
+                }else{
+                    http.post(obj.args[0],obj.args[1],(res)=>{
+                        window.parent.postMessage(res,'*');
+                    },obj.args[2])
+                }
+            })
+            return;
+        }else{
+            //主页面 打开一个iframe
+            let frame=document.createElement('iframe');
+            frame.src='https://oa.dingtalk.com';
+            frame.style.display='none';
+            frame.onload=function(){
+                http.childWin=frame.contentWindow;
+                //console.log(frame.contentWindow);
+            }
+            document.body.append(frame);
+            //监听数据
+            window.addEventListener('message',function(evt){
+                if(http.func){
+                    http.func(evt.data);
+                    http.func=null;
+                }
+            })
+        }
         let searchCache={};
         //从搜索结果中查找
         function searchFromCompanyList(list,name){
@@ -301,7 +365,7 @@
                 //一步一步查找
                 let tmpList=[];
                 for(let i=0;i<list.length;i++){
-                    let currentId=i>0?tmpList[i-1].dept.deptId:'-1';
+                    let currentId=i>0?tmpList[i-1].dept.deptId:-1;
                     //console.log(currentId);
                     if(i==list.length-1){
                         //这是最后一个了
@@ -535,6 +599,7 @@
                 从searchFromCompany或者readFrameworkList中返回的对象数组
         */
         sandbox.saveRule=(rules)=>{
+            console.log(rules);
             //try{
             let data={};
             data.id=dingId;
@@ -549,8 +614,8 @@
             let error;
             //处理审批人/抄送人
             let dealList=(src,dest,withClass,notifierType)=>{
+                console.log(src);
                 for(let item of src){
-                    //console.log(item)
                     if(!item){
                         error={msg:'审批/抄送拿到了null，返回整个列表',obj:src};
                         return;
@@ -888,4 +953,3 @@
         };
     })();
 })();
-
